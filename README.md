@@ -13,6 +13,13 @@ Most agent demos show the happy path. Ouroboros treats failure as the feature:
 
 The judges' hard-to-fake evidence — *a run where an action failed, showing what the agent did next* — is the product itself.
 
+## Docs
+
+- `hackathon.md` — the build log (dated entries, evidence links)
+- `docs/business-plan.md` — cfo.ai unit economics, pricing, runway (numbers pulled from trace costs)
+- `docs/demo-script.md` — 3-minute demo narration and recording checklist
+- `docs/submission.md` — judging-criteria evidence map and pre-submission gates
+
 ## Layout
 
 ```
