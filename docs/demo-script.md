@@ -8,11 +8,15 @@ Record Monday morning. Two segments: offline deterministic loop (exact reproduct
 
 ## 0:25–1:00 — Architecture
 
-Three boxes: Worker (plan → Crustdata tools → dossier → verify), Supervisor (reads neatlogs traces + run log → classifies → remediates → reruns), Evidence (neatlogs traces, Entire checkpoints, run.json before/after).
+Four boxes: Worker (plan → Crustdata tools → dossier → verify), Supervisor (reads the run log + its own neatlogs traces → classifies → remediates → reruns), Watch daemon (polls the run log, heals each new failure once), Evidence (neatlogs traces, Entire checkpoints, run.json before/after).
 
-## 1:00–1:45 — The heal
+## 1:00–1:30 — The heal
 
-Run `bash scripts/demo.sh` (or live pair with `scripts/demo_live.sh`): baseline failure T1 → supervisor classifies 429 → retry_with_backoff → T2 success. Show `healed: true` and the before/after summary. Open the neatlogs trace for both runs: span tree, failed tool span, then green.
+Run `bash scripts/demo.sh --fresh` (or live pair with `scripts/demo_live.sh`): baseline failure T1 → supervisor classifies 429 → `retry_with_backoff` → T2 success. Show `healed: true` and the before/after summary. Open the neatlogs trace for both runs: span tree, failed tool span, then green.
+
+## 1:30–1:50 — Background healing (watch daemon)
+
+Seed another failure, then `ouro watch --once`: it finds and heals the new failure with no human prompt. Second cycle: `seen: []` — each failure is healed exactly once, tracked in `state/watch_state.json`. This is the "watch a running system" pattern from the hackathon brief.
 
 ## 1:45–2:20 — Tool evidence (25% of the score)
 
