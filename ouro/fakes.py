@@ -65,6 +65,12 @@ def _tool_call_response(call_id: str, name: str, arguments: dict[str, Any]) -> _
     return _Response(choices=[_Choice(message=message, index=0)])
 
 
+def _raw_tool_call_response(call_id: str, name: str, raw_arguments: str) -> _Response:
+    call = _ToolCall(id=call_id, function=_Function(name=name, arguments=raw_arguments))
+    message = _Message(content="", tool_calls=[call])
+    return _Response(choices=[_Choice(message=message, index=0)])
+
+
 def _content_response(content: str) -> _Response:
     message = _Message(content=content, tool_calls=None)
     return _Response(choices=[_Choice(message=message, index=0)])

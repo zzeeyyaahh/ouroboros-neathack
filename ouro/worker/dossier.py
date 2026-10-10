@@ -169,6 +169,12 @@ def run_dossier(
         )
     if "revise_plan_expand_search" in actions:
         system += "\nRemediation: run web_search for recent news before finalizing."
+    if "revise_tool_args" in actions:
+        system += (
+            "\nRemediation: a previous tool call was rejected because its arguments were invalid. "
+            "Follow the tool schemas exactly: identify_company takes {domain}; enrich_company takes {company_id} or {domain}; "
+            "search_people takes {company_id, limit}; web_search takes {query}."
+        )
     evidence: dict[str, Any] = {
         "domain": domain,
         "tool_results": {},
@@ -195,19 +201,59 @@ def run_dossier(
             dossier = parse_json_object(msg.content or "")
             break
         for call in msg.tool_calls:
-            args = json.loads(call.function.arguments or "{}")
+            try:
+                args = json.loads(call.function.arguments or "{}")
+                if not isinstance(args, dict):
+                    raise TypeError("tool arguments must be a JSON object")
+            except (json.JSONDecodeError, TypeError) as exc:
+                evidence["tool_failures"].append(
+                    {
+                        "tool": call.function.name,
+                        "args": None,
+                        "status": None,
+                        "kind": "invalid_args",
+                        "error": f"invalid tool call: {exc}",
+                    }
+                )
+                messages.append(
+                    {"role": "tool", "tool_call_id": call.id, "content": json.dumps({"error": str(exc), "status": None})}
+                )
+                continue
             try:
                 result = _call_tool(call.function.name, args, client, backoff=backoff)
-                evidence["tools_succeeded"].append(call.function.name)
-                evidence["tool_results"][call.function.name] = result
-                if call.function.name == "identify_company" and isinstance(result, dict):
-                    evidence["company_id"] = _extract_company_id(result)
-                payload = json.dumps(result, default=str)[:6000]
             except CrustdataError as exc:
                 evidence["tool_failures"].append(
-                    {"tool": call.function.name, "args": args, "status": exc.status, "error": str(exc)}
+                    {
+                        "tool": call.function.name,
+                        "args": args,
+                        "status": exc.status,
+                        "kind": "http" if exc.status else "network",
+                        "error": str(exc),
+                    }
                 )
-                payload = json.dumps({"error": str(exc), "status": exc.status})
+                messages.append(
+                    {"role": "tool", "tool_call_id": call.id, "content": json.dumps({"error": str(exc), "status": exc.status})}
+                )
+                continue
+            except (KeyError, ValueError) as exc:
+                evidence["tool_failures"].append(
+                    {
+                        "tool": call.function.name,
+                        "args": args,
+                        "status": None,
+                        "kind": "invalid_args",
+                        "error": f"invalid tool call: {exc}",
+                    }
+                )
+                messages.append(
+                    {"role": "tool", "tool_call_id": call.id, "content": json.dumps({"error": str(exc), "status": None})}
+                )
+                continue
+            evidence["tools_succeeded"].append(call.function.name)
+            evidence["tool_results"][call.function.name] = result
+            if call.function.name == "identify_company" and isinstance(result, dict):
+                evidence["company_id"] = _extract_company_id(result)
+            payload = json.dumps(result, default=str)[:6000]
             messages.append({"role": "tool", "tool_call_id": call.id, "content": payload})
 
     schema_issues = validate_dossier(dossier, evidence)

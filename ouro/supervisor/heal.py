@@ -16,15 +16,18 @@ REMEDIATIONS: dict[str, str] = {
     "verify_failed": "revise_synthesis_prompt",
     "missing_section": "revise_synthesis_prompt",
     "no_evidence": "revise_plan_expand_search",
+    "invalid_args": "revise_tool_args",
+    "network_error": "retry_with_backoff",
 }
 
 
 def classify_run(run: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     for failure in run.get("tool_failures", []):
-        status = failure.get("status")
-        if status:
-            reasons.append(str(status))
+        if failure.get("kind") == "invalid_args":
+            reasons.append("invalid_args")
+        elif failure.get("status"):
+            reasons.append(str(failure["status"]))
         else:
             reasons.append("network_error")
     if run.get("status") != "success":

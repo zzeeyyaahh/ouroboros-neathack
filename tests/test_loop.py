@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+import json
+
 from ouro import state
-from ouro.fakes import MockCrustdata, MockLLM, build_worker_script
+from ouro.fakes import (
+    GOOD_DOSSIER,
+    MockCrustdata,
+    MockLLM,
+    _content_response,
+    _raw_tool_call_response,
+    _tool_call_response,
+    build_worker_script,
+)
 from ouro.state import append_run
 from ouro.supervisor.heal import classify_run, plan_remediation, supervise
 from ouro.worker import run_dossier
@@ -102,3 +112,64 @@ def test_failed_runs_respects_window(tmp_path, monkeypatch):
 
     recent = failed_runs(1)
     assert [r["run_id"] for r in recent] == ["new"]
+
+
+def test_malformed_tool_args_recorded_not_crashing(tmp_path, monkeypatch):
+    _patch_state(tmp_path, monkeypatch)
+    script = [
+        _tool_call_response("call_1", "identify_company", {"domain": "example.com"}),
+        _tool_call_response("call_2", "search_people", {}),
+        _raw_tool_call_response("call_3", "web_search", "{not-json"),
+        _tool_call_response("call_4", "enrich_company", {"company_id": "mock-co"}),
+        _content_response(json.dumps(GOOD_DOSSIER)),
+    ]
+    record = run_dossier(
+        "example.com",
+        out_root=tmp_path / "out",
+        llm=MockLLM(script),
+        client=MockCrustdata(),
+    )
+    assert record["status"] == "success"
+    bad = record["tool_failures"]
+    assert len(bad) == 2
+    assert all(f["kind"] == "invalid_args" for f in bad)
+    assert {f["tool"] for f in bad} == {"search_people", "web_search"}
+    assert "enrich_company" in record["tools_succeeded"]
+
+    reasons = classify_run(record)
+    assert "invalid_args" in reasons
+    plan = plan_remediation(record)
+    assert "revise_tool_args" in plan["actions"]
+
+
+def test_revise_tool_args_action_edits_system_prompt(tmp_path, monkeypatch):
+    _patch_state(tmp_path, monkeypatch)
+    llm = MockLLM(build_worker_script())
+    run_dossier(
+        "example.com",
+        out_root=tmp_path / "out",
+        llm=llm,
+        client=MockCrustdata(),
+        remediation={"actions": ["revise_tool_args"], "issues": []},
+    )
+    system_msg = llm.calls[0]["messages"][0]["content"]
+    assert "identify_company takes" in system_msg
+
+
+def test_all_invalid_tool_args_fails_run(tmp_path, monkeypatch):
+    _patch_state(tmp_path, monkeypatch)
+    script = [
+        _raw_tool_call_response("call_1", "identify_company", "not json at all"),
+        _content_response(json.dumps(GOOD_DOSSIER)),
+    ]
+    record = run_dossier(
+        "example.com",
+        out_root=tmp_path / "out",
+        llm=MockLLM(script),
+        client=MockCrustdata(),
+    )
+    assert record["status"] == "failed"
+    assert "no successful tool calls in evidence" in record["schema_issues"]
+    assert record["tool_failures"][0]["kind"] == "invalid_args"
+    reasons = classify_run(record)
+    assert "invalid_args" in reasons and "no_evidence" in reasons
