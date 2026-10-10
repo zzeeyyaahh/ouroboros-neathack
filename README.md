@@ -45,14 +45,24 @@ Optional: `OURO_MODEL` (default `gpt-4o`), `OURO_FAULT_INJECT=1` (deterministic 
 ## Usage
 
 ```bash
-.venv/bin/python -m ouro doctor                 # keys + neatlogs probe + crustdata endpoint access
-.venv/bin/python -m ouro run crustdata.com      # one dossier (traced)
-.venv/bin/python -m ouro batch a.com,b.com      # batch, state across runs
-.venv/bin/python -m ouro runs                   # run log summary
-.venv/bin/python -m ouro supervise --window-hours 24   # classify failures, remediate, rerun
+.venv/bin/python -m ouro doctor                      # keys + neatlogs probe + crustdata endpoint access
+.venv/bin/python -m ouro run crustdata.com           # one dossier (traced)
+.venv/bin/python -m ouro batch a.com,b.com           # batch, state across runs
+.venv/bin/python -m ouro runs                        # run log summary
+.venv/bin/python -m ouro supervise --window-hours 24  # classify failures, remediate, rerun, compare
 ```
 
 Outputs land in `out/<domain>/<run_id>/` (`dossier.json`, `run.json`); the run log is `state/runs.jsonl`.
+
+### Offline demo (no keys, no network)
+
+```bash
+bash scripts/demo.sh
+```
+
+`OURO_MOCK=1` swaps the LLM and Crustdata client for deterministic fakes; `OURO_FAULT_INJECT=1` makes the first call to each endpoint 429, so the demo shows the full loop: baseline failure → supervisor classification → `retry_with_backoff` rerun → healed.
+
+`scripts/trace_costs.py` aggregates `out/**/run.json` into success rate, failure counts, token usage, and durations — the inputs for the cfo.ai unit-economics model.
 
 ## Tests
 

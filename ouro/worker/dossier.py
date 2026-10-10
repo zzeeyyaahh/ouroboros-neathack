@@ -74,6 +74,10 @@ _SYSTEM = (
 
 
 def _llm():
+    if settings.mock_mode:
+        from ..fakes import MockLLM
+
+        return MockLLM()
     from openai import OpenAI
 
     return OpenAI(api_key=settings.openai_api_key)
@@ -89,6 +93,20 @@ def _dispatch(name: str, args: dict[str, Any], client: CrustdataClient) -> dict[
     if name == "web_search":
         return client.web_search(args["query"])
     raise ValueError(f"unknown tool: {name}")
+
+
+def _call_tool(name: str, args: dict[str, Any], client: CrustdataClient, backoff: bool) -> dict[str, Any]:
+    attempts = 3 if backoff else 1
+    for attempt in range(attempts):
+        try:
+            return _dispatch(name, args, client)
+        except CrustdataError as exc:
+            retryable = exc.status == 429 or (exc.status is not None and exc.status >= 500)
+            if backoff and retryable and attempt < attempts - 1:
+                time.sleep(0.4 * (2**attempt))
+                continue
+            raise
+    raise CrustdataError("unreachable")
 
 
 def parse_json_object(text: str) -> dict[str, Any]:
@@ -120,11 +138,37 @@ def validate_dossier(dossier: dict[str, Any], evidence: dict[str, Any]) -> list[
     return issues
 
 
-def run_dossier(domain: str, out_root: Path | None = None) -> dict[str, Any]:
+def run_dossier(
+    domain: str,
+    out_root: Path | None = None,
+    llm: Any | None = None,
+    client: CrustdataClient | None = None,
+    remediation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:8]
     started = time.monotonic()
     out_root = out_root or Path(__file__).resolve().parent.parent.parent / "out"
-    client = CrustdataClient()
+    if client is None:
+        if settings.mock_mode:
+            from ..fakes import MockCrustdata
+
+            client = MockCrustdata()
+        else:
+            client = CrustdataClient()
+    if llm is None:
+        llm = _llm()
+    actions = list((remediation or {}).get("actions", []))
+    issues = list((remediation or {}).get("issues", []))
+    backoff = "retry_with_backoff" in actions
+    system = _SYSTEM
+    if issues:
+        system += (
+            "\nRemediation: the previous attempt had these issues and you must fix them: "
+            + "; ".join(issues)
+            + ". Do not leave any dossier section empty."
+        )
+    if "revise_plan_expand_search" in actions:
+        system += "\nRemediation: run web_search for recent news before finalizing."
     evidence: dict[str, Any] = {
         "domain": domain,
         "tool_results": {},
@@ -133,17 +177,18 @@ def run_dossier(domain: str, out_root: Path | None = None) -> dict[str, Any]:
         "company_id": None,
     }
 
-    llm = _llm()
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"Build a dossier for: {domain}"},
     ]
 
     dossier: dict[str, Any] = {}
     steps = 0
+    usage = {"prompt_tokens": 0, "completion_tokens": 0}
     for _ in range(12):
         steps += 1
         resp = llm.chat.completions.create(model=settings.model, messages=messages, tools=TOOLS)
+        _accumulate_usage(resp, usage)
         msg = resp.choices[0].message
         messages.append(msg.model_dump(exclude_none=True))
         if not msg.tool_calls:
@@ -152,7 +197,7 @@ def run_dossier(domain: str, out_root: Path | None = None) -> dict[str, Any]:
         for call in msg.tool_calls:
             args = json.loads(call.function.arguments or "{}")
             try:
-                result = _dispatch(call.function.name, args, client)
+                result = _call_tool(call.function.name, args, client, backoff=backoff)
                 evidence["tools_succeeded"].append(call.function.name)
                 evidence["tool_results"][call.function.name] = result
                 if call.function.name == "identify_company" and isinstance(result, dict):
@@ -166,7 +211,7 @@ def run_dossier(domain: str, out_root: Path | None = None) -> dict[str, Any]:
             messages.append({"role": "tool", "tool_call_id": call.id, "content": payload})
 
     schema_issues = validate_dossier(dossier, evidence)
-    verdict = _verify(domain, dossier, evidence)
+    verdict = _verify(domain, dossier, evidence, llm=llm)
     passed = verdict.get("passed", False) and not schema_issues
 
     run_record: dict[str, Any] = {
@@ -182,6 +227,8 @@ def run_dossier(domain: str, out_root: Path | None = None) -> dict[str, Any]:
         "verify_issues": verdict.get("issues", []),
         "llm_calls": len([m for m in messages if m.get("role") == "assistant"]),
         "tool_calls": client.calls,
+        "usage": usage,
+        "remediation": actions,
     }
 
     out_dir = out_root / domain.replace(".", "_") / run_id
@@ -192,6 +239,16 @@ def run_dossier(domain: str, out_root: Path | None = None) -> dict[str, Any]:
     return run_record
 
 
+def _accumulate_usage(resp: Any, usage: dict[str, int]) -> None:
+    resp_usage = getattr(resp, "usage", None)
+    if resp_usage is None:
+        return
+    for key in ("prompt_tokens", "completion_tokens"):
+        value = getattr(resp_usage, key, None)
+        if isinstance(value, int):
+            usage[key] += value
+
+
 def _extract_company_id(result: dict[str, Any]) -> str | None:
     for key in ("companies", "results", "data"):
         rows = result.get(key)
@@ -200,8 +257,9 @@ def _extract_company_id(result: dict[str, Any]) -> str | None:
     return result.get("company_id") or result.get("id")
 
 
-def _verify(domain: str, dossier: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
-    llm = _llm()
+def _verify(domain: str, dossier: dict[str, Any], evidence: dict[str, Any], llm: Any | None = None) -> dict[str, Any]:
+    if llm is None:
+        llm = _llm()
     prompt = (
         "Verify this dossier against the evidence. Reply with JSON only: "
         '{"passed": true|false, "issues": ["..."]}.\n'

@@ -4,6 +4,7 @@ import json
 import subprocess
 from typing import Any
 
+from ..config import settings
 from ..state import read_runs
 from ..worker import run_dossier
 
@@ -57,6 +58,8 @@ def failed_runs(window_hours: float | None = None) -> list[dict[str, Any]]:
 
 
 def read_recent_traces(limit: int = 5) -> list[dict[str, Any]]:
+    if settings.mock_mode:
+        return [{"trace_id": "mock-trace", "status": "ok"}]
     try:
         proc = subprocess.run(
             ["neatlogs", "traces", "list", "--limit", str(limit), "--json"],
@@ -76,13 +79,34 @@ def read_recent_traces(limit: int = 5) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else data.get("traces", [])
 
 
-def supervise(window_hours: float | None = None, rerun: bool = True) -> list[dict[str, Any]]:
+def supervise(
+    window_hours: float | None = None,
+    rerun: bool = True,
+    llm: Any | None = None,
+    client: Any | None = None,
+    out_root: Any | None = None,
+) -> list[dict[str, Any]]:
     reports: list[dict[str, Any]] = []
     for run in failed_runs(window_hours):
         report = plan_remediation(run)
-        traces = read_recent_traces()
-        report["trace_count_seen"] = len(traces)
+        report["traces_seen"] = len(read_recent_traces())
         if rerun:
-            report["rerun"] = run_dossier(run["domain"])
+            issues = list(run.get("schema_issues", [])) + list(run.get("verify_issues", []))
+            remediation = {"actions": report["actions"], "issues": issues}
+            after = run_dossier(run["domain"], out_root=out_root, llm=llm, client=client, remediation=remediation)
+            report["remediation_applied"] = remediation
+            report["before"] = {
+                "status": run.get("status"),
+                "schema_issues": run.get("schema_issues", []),
+                "verify_issues": run.get("verify_issues", []),
+                "duration_s": run.get("duration_s"),
+            }
+            report["after"] = {
+                "status": after.get("status"),
+                "schema_issues": after.get("schema_issues", []),
+                "verify_issues": after.get("verify_issues", []),
+                "duration_s": after.get("duration_s"),
+            }
+            report["healed"] = run.get("status") != "success" and after.get("status") == "success"
         reports.append(report)
     return reports

@@ -20,6 +20,7 @@ class Settings:
     model: str
     workflow: str
     fault_inject: bool
+    mock_mode: bool
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -30,6 +31,7 @@ class Settings:
             model=os.environ.get("OURO_MODEL", "gpt-4o"),
             workflow=os.environ.get("OURO_WORKFLOW", "ouroboros-worker"),
             fault_inject=_flag("OURO_FAULT_INJECT"),
+            mock_mode=_flag("OURO_MOCK"),
         )
 
 
