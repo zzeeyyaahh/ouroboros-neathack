@@ -13,10 +13,19 @@ Deadline: **Monday 12 Oct, 7:00–11:55 PM IST**. Submit early at 7 PM; hard sto
 | Criterion (weight) | Evidence artifact | Where |
 |---|---|---|
 | The agent (30%) | before/after run pair with compared numbers: success rate, duration, failure counts | `state/runs.jsonl`, `out/*/run.json`, demo video |
-| Use of neatlogs/Entire/cfo.ai (25%) | T1 + T2 trace links (span trees, tokens, cost); Entire checkpoint link `entire.io/gh/<owner>/<repo>/commit/<SHA>`; business plan in submission | neatlogs dashboard, Entire, docs/business-plan.md |
+| Use of neatlogs/Entire/cfo.ai (25%) | T1 + T2 trace links (span trees, tokens, cost); Entire checkpoint [01M4JKMTFRFR19HC9RQWX942M2](https://entire.io/gh/zzeeyzaahh/ouroboros-neathack/commit/b4aea1709dcc292a42aa2a9b683e87066aec1b79) (session context behind the build-log commit); business plan in submission | neatlogs dashboard, Entire, docs/business-plan.md |
 | Demo video (20%) | 3-min video following docs/demo-script.md | YouTube/Loom link |
 | Building in public (15%) | 3+ posts tagged #neatHack (incl. the failure moment), Discord activity | X + Discord links |
 | Usefulness/originality (10%) | README problem statement + demo narrative | README.md |
+
+## Entire evidence (first checkpoint)
+
+- Checkpoint ID: `01M4JKMTFRFR19HC9RQWX942M2`
+- Link: https://entire.io/gh/zzeeyzaahh/ouroboros-neathack/commit/b4aea1709dcc292a42aa2a9b683e87066aec1b79
+- Commit: `b4aea17` "Build log: Entire checkpoint capture root cause and safety gate" (carries the `Entire-Checkpoint` trailer)
+- Attached via `entire session attach ses_edb2b8d9fffeh2VUE94nABtTOh --agent opencode --force` because the opencode plugin never loaded for this session (project root was the home dir, not the repo — see hackathon.md)
+- Safety: redaction rules in `.entire/settings.local.json` stripped a TinyFish API key that an earlier debug `cat` printed into the transcript; verified absent from the checkpoint ref before push (0 exact-key matches, 0 key-shaped tokens, 15 REDACTED tokens present)
+- Additional checkpoints will appear automatically once future sessions run from inside the repo (`cd ~/ouroboros && opencode`)
 
 ## Pre-submission gates
 

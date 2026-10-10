@@ -30,3 +30,4 @@
 - Fix for future sessions: launch opencode from inside the repo (`cd ~/ouroboros && opencode`) so the plugin loads and checkpoints attach automatically.
 - For this session: attach manually via `entire session attach <session-id> --agent opencode`.
 - Safety gate: an earlier debug command printed a TinyFish API key into this session's transcript. Before any attach is pushed, redaction rules in `.entire/settings.local.json` (untracked) must strip it, verified by grepping the checkpoint ref for the key prefix. `strategy_options.push_sessions` is also `false` so raw session logs never auto-push.
+- **Outcome**: attached session `ses_edb2b8d9fffeh2VUE94nABtTOh` → checkpoint `01M4JKMTFRFR19HC9RQWX942M2` on commit `b4aea17` (trailer added). Redaction verified before push: exact key 0 matches, key-shaped tokens 0, REDACTED tokens 15+3 — safe to publish. Checkpoint link recorded in docs/submission.md.
