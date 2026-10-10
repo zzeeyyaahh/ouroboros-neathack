@@ -62,6 +62,12 @@ def main(argv: list[str] | None = None) -> int:
     sup_p.add_argument("--window-hours", type=float, default=24)
     sup_p.add_argument("--dry-run", action="store_true")
 
+    watch_p = sub.add_parser("watch", help="Keep watching the run log and heal new failures")
+    watch_p.add_argument("--window-hours", type=float, default=24)
+    watch_p.add_argument("--interval", type=int, default=300, help="Seconds between cycles")
+    watch_p.add_argument("--once", action="store_true", help="Run a single cycle and exit")
+    watch_p.add_argument("--max-cycles", type=int, default=None)
+
     sub.add_parser("doctor", help="Check keys, neatlogs probe, and Crustdata endpoint access")
     sub.add_parser("runs", help="Show the run log")
 
@@ -91,6 +97,21 @@ def main(argv: list[str] | None = None) -> int:
 
             reports = supervise(args.window_hours, rerun=not args.dry_run)
             print(json.dumps(reports, indent=2, default=str)[:4000])
+            return 0
+        if args.command == "watch":
+            from .supervisor import watch_once
+
+            if args.once or args.max_cycles:
+                from .supervisor import watch_daemon
+
+                watch_daemon(
+                    window_hours=args.window_hours,
+                    interval_s=args.interval,
+                    max_cycles=args.max_cycles if args.max_cycles else 1,
+                )
+                return 0
+            result = watch_once(args.window_hours)
+            print(json.dumps(result, indent=2))
             return 0
     finally:
         shutdown_tracing(tracker)
