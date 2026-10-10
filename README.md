@@ -9,7 +9,8 @@ An agent pipeline that watches itself die, then fixes itself.
 Most agent demos show the happy path. Ouroboros treats failure as the feature:
 
 1. **Worker** (`ouro/worker/dossier.py`) — given a company domain, it plans, calls Crustdata tools (identify → enrich → people → web search), and synthesizes a verified company dossier. Every LLM call, tool call, and failure is traced in **neatlogs**.
-2. **Supervisor** (`ouro/supervisor/heal.py`) — reads the worker's run log and its *own* neatlogs traces, classifies each failure (429s, missing data, verification gaps), picks a remediation, re-runs, and verifies the fix.
+2. **Supervisor** (`ouro/supervisor/heal.py`) — reads the worker's run log and its *own* neatlogs traces, classifies each failure (429s, invalid tool args, verification gaps), picks a remediation, re-runs, and verifies the fix.
+3. **Watch daemon** (`ouro watch`) — keeps polling the run log in the background; every *new* failure is healed exactly once and recorded in `state/watch_state.json`. This is the "watch a running system" pattern: the agent doesn't need a human to press the fix button.
 
 The judges' hard-to-fake evidence — *a run where an action failed, showing what the agent did next* — is the product itself.
 
@@ -47,16 +48,18 @@ Env vars:
 | `OPENAI_API_KEY` | OpenAI |
 | `NEATLOGS_API_KEY` | app.neatlogs.com → Settings → API keys → **top** key (Project API key, not the `nlw_` ingest key) |
 
-Optional: `OURO_MODEL` (default `gpt-4o`), `OURO_FAULT_INJECT=1` (deterministic first-call 429 per endpoint, for repeatable demo runs).
+Optional: `OURO_MODEL` (default `gpt-4o`), `OURO_FAULT_INJECT=1` (deterministic first-call 429 per endpoint, for repeatable demo runs), `OURO_MOCK=1` (offline fakes, no keys needed).
 
 ## Usage
 
 ```bash
-.venv/bin/python -m ouro doctor                      # keys + neatlogs probe + crustdata endpoint access
-.venv/bin/python -m ouro run crustdata.com           # one dossier (traced)
-.venv/bin/python -m ouro batch a.com,b.com           # batch, state across runs
-.venv/bin/python -m ouro runs                        # run log summary
-.venv/bin/python -m ouro supervise --window-hours 24  # classify failures, remediate, rerun, compare
+.venv/bin/python -m ouro doctor                       # keys + neatlogs probe + crustdata endpoint access
+.venv/bin/python -m ouro run crustdata.com            # one dossier (traced)
+.venv/bin/python -m ouro batch a.com,b.com            # batch, state across runs
+.venv/bin/python -m ouro runs                         # run log summary
+.venv/bin/python -m ouro supervise --window-hours 24   # classify failures, remediate, rerun, compare
+.venv/bin/python -m ouro watch --once                 # one background healing cycle
+.venv/bin/python -m ouro watch --interval 300         # poll every 5 minutes, heal each new failure once
 ```
 
 Outputs land in `out/<domain>/<run_id>/` (`dossier.json`, `run.json`); the run log is `state/runs.jsonl`.
@@ -68,6 +71,8 @@ bash scripts/demo.sh
 ```
 
 `OURO_MOCK=1` swaps the LLM and Crustdata client for deterministic fakes; `OURO_FAULT_INJECT=1` makes the first call to each endpoint 429, so the demo shows the full loop: baseline failure → supervisor classification → `retry_with_backoff` rerun → healed.
+
+The watch daemon works the same way offline: seed a failure with `OURO_MOCK=1 OURO_FAULT_INJECT=1 .venv/bin/python -m ouro run example.com`, then `.venv/bin/python -m ouro watch --once` heals it, and a second cycle correctly heals nothing (each failure is healed once — tracked in `state/watch_state.json`).
 
 `scripts/trace_costs.py` aggregates `out/**/run.json` into success rate, failure counts, token usage, and durations — the inputs for the cfo.ai unit-economics model.
 

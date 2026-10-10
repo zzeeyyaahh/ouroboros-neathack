@@ -17,3 +17,8 @@
 - Supervisor v1: classifies failures from the run log (429 → retry_with_backoff, verify/schema issues → revise_synthesis_prompt, etc.), remediates, reruns, and records before/after comparison.
 - Offline proof of the loop (OURO_MOCK=1 + OURO_FAULT_INJECT=1): baseline run failed with 4× 429s and no evidence; supervisor reran with backoff → success ("healed": true). 14 tests green, ruff clean.
 - Blocker: .env key names present but values empty — awaiting user signups (Crustdata promo NEATLOGS-OCT2026, neatlogs Project API key, OpenAI key) for live runs.
+
+### Later on Day 1: watch daemon + failure-kind hardening
+
+- Watch daemon (`ouro watch --once` / `--interval N`): polls the run log, heals each *new* failure exactly once, tracks state in `state/watch_state.json`. Verified via CLI: seeded failure → cycle 1 healed it → cycle 2 healed nothing (dedup confirmed).
+- Tool-failure taxonomy: failures now carry `kind` (`http`, `network`, `invalid_args`) so the supervisor classifies malformed LLM tool calls (`invalid_args` → `revise_tool_args`) instead of crashing the run — regression tests added. 20 tests green, ruff clean.
