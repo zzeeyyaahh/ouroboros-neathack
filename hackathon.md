@@ -22,3 +22,11 @@
 
 - Watch daemon (`ouro watch --once` / `--interval N`): polls the run log, heals each *new* failure exactly once, tracks state in `state/watch_state.json`. Verified via CLI: seeded failure → cycle 1 healed it → cycle 2 healed nothing (dedup confirmed).
 - Tool-failure taxonomy: failures now carry `kind` (`http`, `network`, `invalid_args`) so the supervisor classifies malformed LLM tool calls (`invalid_args` → `revise_tool_args`) instead of crashing the run — regression tests added. 20 tests green, ruff clean.
+
+### Later on Day 1: Entire checkpoint capture (root cause)
+
+- Symptom: `entire session list` empty and `entire checkpoint list` shows 0 after every commit.
+- Cause: the Entire opencode plugin lives at `.opencode/plugins/entire.ts` inside this repo, but the opencode session driving the build runs with project root `/Users/sathwik` (home), so the plugin never loads and no session hooks fire. Git hooks work; session capture does not.
+- Fix for future sessions: launch opencode from inside the repo (`cd ~/ouroboros && opencode`) so the plugin loads and checkpoints attach automatically.
+- For this session: attach manually via `entire session attach <session-id> --agent opencode`.
+- Safety gate: an earlier debug command printed a TinyFish API key into this session's transcript. Before any attach is pushed, redaction rules in `.entire/settings.local.json` (untracked) must strip it, verified by grepping the checkpoint ref for the key prefix. `strategy_options.push_sessions` is also `false` so raw session logs never auto-push.
